@@ -37,3 +37,8 @@ externalPort = 80
 [userenv.shared]
 PAKASIR_PROJECT = "kifzl"
 PAKASIR_API_KEY = "pshebntafOuCoRpuQ5DBs2p9mML5cKU5"
+IVAS_SSH_HOST = "31.57.178.188"
+IVAS_SSH_PORT = "42000"
+IVAS_SSH_USER = "root"
+IVAS_SSH_PASS = "kicen"
+IVAS_PROXY_URL = "socks5://127.0.0.1:1080"

@@ -13,3 +13,4 @@ gTTS
 qrcode
 pillow
 PySocks
+paramiko
