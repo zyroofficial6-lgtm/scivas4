@@ -2174,31 +2174,19 @@ def handle_ambilfile_email_cb(chat_id, user_id, email, cb_id, msg_id):
         f"⏳ Sedang mengambil &amp; menyusun file export..."
         f"</blockquote>")
 
-    acc_target = next((a for a in accounts if a["email"] == email), None)
-    if not acc_target:
-        prem_cookies = load_premium_cookies()
-        if email not in prem_cookies:
-            delete_and_send(chat_id, proc_id,
-                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
-                f"<blockquote>"
-                f"📧 Email: <code>{email}</code>\n"
-                f"❌ Akun/cookie tidak ditemukan. Set cookie dulu."
-                f"</blockquote>")
-            return
-        session = make_httpx_client()
-        session.cookies.update(prem_cookies[email])
-        acc_target = {"email": email, "session": session, "last_login": time.time(),
-                      "password": "", "csrf_token": "", "cookies": prem_cookies[email]}
-
-    if not ensure_login(acc_target):
+    all_cookies = load_cookies()
+    prem_cookies = load_premium_cookies()
+    cookies = all_cookies.get(email) or prem_cookies.get(email)
+    if not cookies:
         delete_and_send(chat_id, proc_id,
             f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
             f"<blockquote>"
             f"📧 Email: <code>{email}</code>\n"
-            f"❌ Gagal login/verifikasi session. Perbarui cookie."
+            f"❌ Cookie tidak ditemukan. Set cookie dulu."
             f"</blockquote>")
         return
 
+    acc_target = {"email": email, "cookies": cookies, "csrf_token": ""}
     export_numbers_ivas(chat_id, acc_target, status_msg_id=proc_id)
 
 def delete_msg(chat_id, message_id):
