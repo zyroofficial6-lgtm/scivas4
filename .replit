@@ -31,3 +31,9 @@ outputType = "console"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+PAKASIR_PROJECT = "kifzl"
+PAKASIR_API_KEY = "pshebntafOuCoRpuQ5DBs2p9mML5cKU5"
