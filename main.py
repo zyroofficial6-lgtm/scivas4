@@ -23,14 +23,22 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 def make_httpx_client(timeout=30):
-    return httpx.Client(
+    proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
+    kwargs = dict(
         follow_redirects=True,
         timeout=timeout,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "X-Requested-With": "XMLHttpRequest"}
     )
+    if proxy:
+        kwargs["proxy"] = proxy
+    return httpx.Client(**kwargs)
 
 def make_requests_session():
-    return requests.Session()
+    s = requests.Session()
+    proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
+    if proxy:
+        s.proxies = {"http": proxy, "https": proxy}
+    return s
 
 # ================= FILES =================
 ACCOUNTS_FILE = "accounts.json"
@@ -3999,6 +4007,14 @@ def _init_bot_username():
     except Exception as e:
         print(Fore.YELLOW + f"  getMe error: {e}")
 _init_bot_username()
+
+# ================= PROXY STATUS =================
+_ivas_proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
+if _ivas_proxy:
+    _masked = _ivas_proxy.split("@")[-1] if "@" in _ivas_proxy else _ivas_proxy
+    print(Fore.GREEN + f"  IVAS PROXY AKTIF — {_masked}")
+else:
+    print(Fore.YELLOW + "  IVAS PROXY — tidak diset (request langsung)")
 
 threading.Thread(target=run_keepalive,        daemon=True).start()
 threading.Thread(target=listen_command,       daemon=True).start()
