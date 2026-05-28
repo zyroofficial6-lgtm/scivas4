@@ -23,6 +23,17 @@ from io import BytesIO
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+# ================= CONSOLE LOGGER =================
+def _log(tag, msg, color=Fore.CYAN):
+    print(color + f"  [{tag:<10}] {msg}" + Style.RESET_ALL, flush=True)
+
+def _print_banner(bot_username=""):
+    name = f"@{bot_username}" if bot_username else "IVAS BOT"
+    line = "─" * 44
+    print(Fore.CYAN + Style.BRIGHT + f"\n  {line}")
+    print(f"   IVAS BOT  {name}")
+    print(f"  {line}" + Style.RESET_ALL)
+
 def make_httpx_client(timeout=30):
     proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
     kwargs = dict(
@@ -64,10 +75,10 @@ def _ssh_connect():
                   timeout=30, banner_timeout=30, auth_timeout=30)
         _ssh_transport = c.get_transport()
         _ssh_transport.set_keepalive(30)
-        print(Fore.GREEN + f"  SSH TUNNEL KONEK — {ssh_user}@{ssh_host}:{ssh_port}")
+        _log("SSH", f"konek → {ssh_user}@{ssh_host}:{ssh_port}", Fore.GREEN)
         return True
     except Exception as e:
-        print(Fore.RED + f"  SSH TUNNEL GAGAL: {e}")
+        _log("SSH", f"gagal: {e}", Fore.RED)
         return False
 
 def _ensure_ssh():
@@ -153,7 +164,7 @@ def run_socks5_server(local_port=1080):
         srv.bind(('127.0.0.1', 0))
         local_port = srv.getsockname()[1]
     srv.listen(100)
-    print(Fore.GREEN + f"  SOCKS5 SERVER — 127.0.0.1:{local_port} aktif")
+    _log("SOCKS5", f"127.0.0.1:{local_port} aktif", Fore.GREEN)
     while True:
         try:
             conn, _ = srv.accept()
@@ -277,13 +288,13 @@ def _tg_request(method, data=None, json_data=None, files=None, timeout=12):
             r = _TG_SESSION.post(url, data=data, json=json_data, files=files, timeout=timeout)
             if r.status_code == 429:
                 retry_after = r.json().get("parameters", {}).get("retry_after", 5)
-                print(Fore.YELLOW + f"  TG FLOOD 429 [{method}]: tunggu {retry_after}s")
+                _log("TG-429", f"{method} — tunggu {retry_after}s", Fore.YELLOW)
                 time.sleep(retry_after + 1)
                 continue
             return r
         except Exception as e:
             if attempt == 2:
-                print(Fore.RED + f"  TG ERROR [{method}]: {e}")
+                _log("TG-ERR", f"{method} — {e}", Fore.RED)
             else:
                 time.sleep(1.5 ** (attempt + 1))
     return None
@@ -651,7 +662,7 @@ def save_sent_cache_debounced():
             _last_cache_save = time.time()
             _cache_dirty = False
         except Exception as e:
-            print(f"WARN save cache: {e}")
+            _log("WARN", f"save cache: {e}", Fore.YELLOW)
 
 # ================= LOAD DATA =================
 accounts = load_accounts()
@@ -2392,7 +2403,7 @@ def get_recv_csrf(acc) -> str:
             _recv_csrf_cache[email] = {"csrf": csrf, "ts": now}
             return csrf
     except Exception as e:
-        print(f"WARN get_recv_csrf [{email}]: {e}")
+        _log("WARN", f"get_csrf [{email}]: {e}", Fore.YELLOW)
     return acc.get("recv_csrf") or acc.get("csrf_token", "")
 
 
@@ -2812,7 +2823,7 @@ def ensure_login(acc):
                         timeout=10
                     )
             return True
-        print(Fore.YELLOW + f"  COOKIE EXPIRED [{email}] — coba login password")
+        _log("COOKIE", f"expired [{email}] — coba login ulang", Fore.YELLOW)
 
     if login(acc):
         acc["last_login"] = now
@@ -2833,7 +2844,7 @@ def ensure_login(acc):
         _session_notified[email] = True
         _session_recovered[email] = False
         _session_fail_time[email] = now
-        print(Fore.RED + f"  SESSION GAGAL [{email}] — notif dikirim")
+        _log("SESSION", f"gagal [{email}] — notif dikirim", Fore.RED)
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={
@@ -3071,7 +3082,7 @@ def get_sms(acc, rng, number):
             if re.search(r"\b\d{2}:\d{2}:\d{2}\b", t): continue  
             if "$" in t: continue  
             if t and "No SMS Found" not in t: sms_texts.append(t)  
-    except Exception as e: print("ERROR PARSE SMS:", e)  
+    except Exception as e: _log("ERROR", f"parse sms: {e}", Fore.RED)
     return list(dict.fromkeys(sms_texts))  
     
 def format_phone_number(number):
@@ -3377,7 +3388,7 @@ def poll_one_account(acc):
     except Exception as e:
         err = str(e)
         if "SESSION_EXPIRED" not in err:
-            print(Fore.YELLOW + f"  WARN get_ranges [{email}]: {err}")
+            _log("WARN", f"get_ranges [{email}]: {err}", Fore.YELLOW)
         return False
 
     for rng in ranges:
@@ -3387,7 +3398,7 @@ def poll_one_account(acc):
         except Exception as e:
             err = str(e)
             if "SESSION_EXPIRED" not in err:
-                print(Fore.YELLOW + f"  WARN get_numbers [{email}]: {err}")
+                _log("WARN", f"get_numbers [{email}]: {err}", Fore.YELLOW)
             continue
 
         for num in numbers:
@@ -3398,7 +3409,8 @@ def poll_one_account(acc):
             try:
                 sms_list = get_sms(acc, rng, num)
             except Exception as e:
-                print(f"WARN get_sms [{email}]: {e}")
+                if "SESSION_EXPIRED" not in str(e):
+                    _log("WARN", f"get_sms [{email}]: {e}", Fore.YELLOW)
                 continue
 
             for sms in sms_list:
@@ -3437,7 +3449,7 @@ def poll_one_account(acc):
                                 timeout=10)
                     if res is not None and not res.json().get("ok"):
                         err = res.json().get("description", "unknown error")
-                        print(Fore.RED + f"  SEND GAGAL → {gid}: {err}")
+                        _log("SEND-ERR", f"→ {gid}: {err}", Fore.RED)
 
                 with _sent_cache_lock:
                     sent_cache.add(sms_uid)
@@ -3449,7 +3461,7 @@ def poll_one_account(acc):
                     sms_stats["total_number"].add(full_num)
 
                 user_display = get_user_display(owner_uid)
-                print(Fore.GREEN + f"OTP → {user_display} ({mask_email(email)}) | {masked_num} | {otp}")
+                _log("OTP", f"{user_display} ({mask_email(email)}) | {masked_num} | {otp}", Fore.GREEN)
                 found_sms = True
 
     return found_sms
@@ -3482,7 +3494,7 @@ def _notify_cookie_expired(email, uid):
             timeout=10
         )
     except Exception as e:
-        print(Fore.RED + f"  NOTIF ERROR [{email}]: {e}")
+        _log("NOTIF-ERR", f"[{email}]: {e}", Fore.RED)
 
 
 def auto_cookie_refresher():
@@ -3498,7 +3510,7 @@ def auto_cookie_refresher():
     Jika session sudah benar-benar expired (bot restart lama / downtime):
     → Notif owner + user untuk update cookie manual, TIDAK coba password login
     """
-    print(Fore.CYAN + "  AUTO KEEPALIVE — background aktif (ping tiap 10 menit)")
+    _log("KEEPALIVE", "background aktif — ping tiap 10 menit", Fore.CYAN)
     time.sleep(90)  # Tunggu bot fully ready + semua akun ter-load dulu
 
     while True:
@@ -3580,7 +3592,7 @@ def auto_cookie_refresher():
                                     except Exception:
                                         pass
                             _keepalive_warn_count[email] = 0
-                            print(Fore.GREEN + f"  KEEPALIVE OK: {email} — {len(fresh)} cookie di-extend")
+                            _log("KA-OK", f"{email} — {len(fresh)} cookie di-extend", Fore.GREEN)
                     else:
                         # Hitung berapa kali keepalive gagal berturut-turut
                         fail_n = _keepalive_warn_count.get(email, 0) + 1
@@ -3589,7 +3601,7 @@ def auto_cookie_refresher():
 
                         if fail_n == 1:
                             # Kegagalan PERTAMA → kirim warning awal (sebelum konfirmasi expired)
-                            print(Fore.YELLOW + f"  KEEPALIVE WARNING ({fail_n}x): {email}")
+                            _log("KA-WARN", f"({fail_n}x) {email}", Fore.YELLOW)
                             last_notif = _last_cookie_notif.get(email + "_warn", 0)
                             if now - last_notif > COOKIE_NOTIF_COOLDOWN:
                                 _last_cookie_notif[email + "_warn"] = now
@@ -3614,7 +3626,7 @@ def auto_cookie_refresher():
                                     pass
                         else:
                             # Kegagalan ke-2+ → session benar-benar expired, notif hard
-                            print(Fore.RED + f"  KEEPALIVE EXPIRED ({fail_n}x): {email} — session mati, notif user")
+                            _log("KA-DEAD", f"({fail_n}x) {email} — session mati, notif user", Fore.RED)
                             _notify_cookie_expired(email, uid)
                             if not _session_notified.get(email):
                                 _session_notified[email] = True
@@ -3624,14 +3636,14 @@ def auto_cookie_refresher():
                     _last_cookie_refresh[email] = now
 
                 except Exception as e:
-                    print(Fore.RED + f"  KEEPALIVE ERROR [{email}]: {e}")
+                    _log("KA-ERR", f"[{email}]: {e}", Fore.RED)
 
                 time.sleep(2)  # Jeda kecil antar akun — jangan hammering server
 
             time.sleep(60)  # Loop setiap 1 menit untuk cek akun mana yang due
 
         except Exception as e:
-            print(Fore.RED + f"ERROR AUTO KEEPALIVE: {e}")
+            _log("KA-ERR", f"loop crash: {e}", Fore.RED)
             time.sleep(60)
 
 
@@ -3710,9 +3722,9 @@ def _send_backup_telegram():
                 files={"document": (zip_name, f, "application/zip")},
                 timeout=120,
             )
-        print(Fore.GREEN + f"  AUTO BACKUP TERKIRIM: {zip_name} ({size_str}, {total_files} file)")
+        _log("BACKUP", f"terkirim — {zip_name} ({size_str}, {total_files} file)", Fore.GREEN)
     except Exception as e:
-        print(Fore.RED + f"  AUTO BACKUP ERROR: {e}")
+        _log("BACKUP", f"error: {e}", Fore.RED)
         try:
             requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -3735,11 +3747,11 @@ def _send_backup_telegram():
 
 def run_auto_backup():
     """Background thread: backup langsung saat startup, lalu tiap jam 00:00."""
-    print(Fore.CYAN + "  AUTO BACKUP — background aktif (startup + setiap jam 00:00)")
+    _log("BACKUP", "background aktif — startup + tiap 00:00", Fore.CYAN)
     time.sleep(20)  # Tunggu bot & akun selesai init
 
     # ── Backup pertama: langsung saat startup ─────────────────────────────────
-    print(Fore.CYAN + "  AUTO BACKUP STARTUP — kirim backup awal...")
+    _log("BACKUP", "kirim backup startup...", Fore.CYAN)
     _send_backup_telegram()
 
     # ── Loop: backup berikutnya setiap tengah malam ───────────────────────────
@@ -3753,17 +3765,17 @@ def run_auto_backup():
 
             jam   = int(wait_sec // 3600)
             menit = int((wait_sec % 3600) // 60)
-            print(Fore.CYAN + f"  BACKUP berikutnya dalam {jam}j {menit}m ({next_midnight.strftime('%d %b %Y 00:00')})")
+            _log("BACKUP", f"berikutnya dalam {jam}j {menit}m ({next_midnight.strftime('%d %b %Y 00:00')})", Fore.CYAN)
 
             time.sleep(wait_sec)
 
-            print(Fore.CYAN + "  AUTO BACKUP TENGAH MALAM — dimulai...")
+            _log("BACKUP", "tengah malam — dimulai...", Fore.CYAN)
             _send_backup_telegram()
 
             time.sleep(65)  # Jeda agar tidak trigger 2x di menit yang sama
 
         except Exception as e:
-            print(Fore.RED + f"ERROR AUTO BACKUP: {e}")
+            _log("BACKUP", f"loop crash: {e}", Fore.RED)
             time.sleep(3600)
 
 
@@ -3825,7 +3837,7 @@ def run_expiry_notifier():
       -  1 jam sebelum expired
     Setelah expired, reset agar notif bisa terkirim lagi untuk perpanjangan berikutnya.
     """
-    print(Fore.CYAN + "  EXPIRY NOTIFIER — background aktif (cek tiap 30 menit)")
+    _log("EXPIRY", "background aktif — cek tiap 30 menit", Fore.CYAN)
     time.sleep(60)  # Tunggu bot ready
 
     while True:
@@ -3852,23 +3864,23 @@ def run_expiry_notifier():
                 # 24 jam sebelum
                 if sisa <= 86400 and "24h" not in sent:
                     sent.add("24h")
-                    print(Fore.YELLOW + f"  EXPIRY WARN 24h: uid={uid_str} tier={tier}")
+                    _log("EXPIRY", f"24j — uid={uid_str} tier={tier}", Fore.YELLOW)
                     _send_expiry_notif(int(uid_str), tier, sisa, "24h")
 
                 # 3 jam sebelum
                 if sisa <= 10800 and "3h" not in sent:
                     sent.add("3h")
-                    print(Fore.YELLOW + f"  EXPIRY WARN 3h: uid={uid_str} tier={tier}")
+                    _log("EXPIRY", f"3j — uid={uid_str} tier={tier}", Fore.YELLOW)
                     _send_expiry_notif(int(uid_str), tier, sisa, "3h")
 
                 # 1 jam sebelum
                 if sisa <= 3600 and "1h" not in sent:
                     sent.add("1h")
-                    print(Fore.RED + f"  EXPIRY WARN 1h: uid={uid_str} tier={tier}")
+                    _log("EXPIRY", f"1j — uid={uid_str} tier={tier}", Fore.RED)
                     _send_expiry_notif(int(uid_str), tier, sisa, "1h")
 
         except Exception as e:
-            print(Fore.RED + f"ERROR EXPIRY NOTIFIER: {e}")
+            _log("EXPIRY", f"loop crash: {e}", Fore.RED)
 
         time.sleep(1800)  # Cek ulang setiap 30 menit
 
@@ -3890,7 +3902,7 @@ def account_worker(acc):
             else:
                 sleep_time = min(sleep_time + 0.5, 5.0)  # naik pelan ke max 5s
         except Exception as e:
-            print(Fore.RED + f"ERROR WORKER [{email}]: {e}")
+            _log("WORKER", f"error [{email}]: {e}", Fore.RED)
             sleep_time = min(sleep_time * 2, 15.0)   # error → backoff agresif
         time.sleep(sleep_time)
 
@@ -3901,7 +3913,7 @@ def run_bot():
     _account_threads = {}   # email -> Thread
     _last_sync       = 0.0
 
-    print(Fore.CYAN + Style.BRIGHT + "  BOT MANAGER STARTED — per-account threading aktif")
+    _log("BOT-MGR", "per-account threading aktif", Fore.CYAN)
 
     while True:
         try:
@@ -3996,7 +4008,7 @@ def run_bot():
                         )
                         nt.start()
                         _account_threads[em] = nt
-                        print(Fore.YELLOW + f"  THREAD START: {em}")
+                        _log("THREAD+", f"{em}", Fore.GREEN)
 
                 # Hapus thread untuk akun yang sudah dihapus
                 for em in [e for e in list(_account_threads) if e not in active_emails]:
@@ -4009,7 +4021,7 @@ def run_bot():
                 # Health-check ringan setiap siklus (2 detik) — respawn thread mati
                 for em, t in list(_account_threads.items()):
                     if not t.is_alive():
-                        print(Fore.YELLOW + f"  THREAD MATI, RESPAWN: {em}")
+                        _log("THREAD~", f"respawn: {em}", Fore.YELLOW)
                         with accounts_lock:
                             all_now = list(accounts) + list(_premium_acc_cache.values())
                         for acc in all_now:
@@ -4032,7 +4044,7 @@ def run_bot():
             time.sleep(2)
 
         except Exception as e:
-            print(Fore.RED + f"ERROR BOT MANAGER: {e}")
+            _log("BOT-MGR", f"error: {e}", Fore.RED)
             time.sleep(2)
 
             
@@ -4107,18 +4119,19 @@ def run_keepalive():
     port = int(os.environ.get("PORT", 5000))
     HTTPServer.allow_reuse_address = True
     server = HTTPServer(("0.0.0.0", port), KeepAliveHandler)
-    print(Fore.CYAN + f"  KEEP-ALIVE SERVER — port {port} | /health /status")
+    _log("SERVER", f"port {port} | /health /status", Fore.CYAN)
     server.serve_forever()
 
 # ================= GRACEFUL SHUTDOWN (Railway SIGTERM) =================
 def _graceful_shutdown(signum, frame):
-    print(Fore.YELLOW + "\n  SIGNAL DITERIMA — menyimpan state sebelum shutdown...")
+    print("")
+    _log("SHUTDOWN", "menyimpan state...", Fore.YELLOW)
     try:
         with _sent_cache_lock:
             save_sent_cache()
     except Exception:
         pass
-    print(Fore.YELLOW + "  State tersimpan. Bye!")
+    _log("SHUTDOWN", "state tersimpan. Bye!", Fore.YELLOW)
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, _graceful_shutdown)
@@ -4133,10 +4146,11 @@ def _init_bot_username():
         d = r.json()
         if d.get("ok"):
             BOT_USERNAME = d["result"].get("username", "")
-            print(Fore.CYAN + f"  BOT USERNAME: @{BOT_USERNAME}")
     except Exception as e:
-        print(Fore.YELLOW + f"  getMe error: {e}")
+        _log("BOT", f"getMe error: {e}", Fore.YELLOW)
 _init_bot_username()
+
+_print_banner(BOT_USERNAME)
 
 # ================= SSH TUNNEL STARTUP =================
 _maybe_start_ssh_tunnel()
@@ -4145,9 +4159,9 @@ _maybe_start_ssh_tunnel()
 _ivas_proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
 if _ivas_proxy:
     _masked = _ivas_proxy.split("@")[-1] if "@" in _ivas_proxy else _ivas_proxy
-    print(Fore.GREEN + f"  IVAS PROXY AKTIF — {_masked}")
+    _log("PROXY", f"aktif — {_masked}", Fore.GREEN)
 else:
-    print(Fore.YELLOW + "  IVAS PROXY — tidak diset (request langsung)")
+    _log("PROXY", "tidak diset — request langsung", Fore.YELLOW)
 
 threading.Thread(target=run_keepalive,        daemon=True).start()
 threading.Thread(target=listen_command,       daemon=True).start()
