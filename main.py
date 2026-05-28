@@ -3913,27 +3913,9 @@ def _init_bot_username():
         print(Fore.YELLOW + f"  getMe error: {e}")
 _init_bot_username()
 
-# ================= RAILWAY SINGLE-INSTANCE GUARD =================
-# Railway bisa spawn beberapa replica — pastikan hanya 1 yang jalankan bot
-_railway_replica = os.environ.get("RAILWAY_REPLICA_ID", "")
-_is_primary = True
-if _railway_replica:
-    # Replica ID format Railway: "<hash>-<index>" atau "<index>"
-    # Hanya replica index 0 (primary) yang boleh jalankan bot
-    _replica_index = _railway_replica.split("-")[-1]
-    _is_primary = (_replica_index == "0")
-    if not _is_primary:
-        print(Fore.YELLOW + f"  [GUARD] Replica non-primary ({_railway_replica}) — hanya jalankan keep-alive server.")
-
-threading.Thread(target=run_keepalive, daemon=True).start()
-
-if _is_primary:
-    threading.Thread(target=listen_command,       daemon=True).start()
-    threading.Thread(target=auto_cookie_refresher,daemon=True).start()
-    threading.Thread(target=run_auto_backup,      daemon=True).start()
-    threading.Thread(target=run_expiry_notifier,  daemon=True).start()
-    run_bot()
-else:
-    # Non-primary replica: tetap hidup untuk health check Railway saja
-    while True:
-        time.sleep(60)
+threading.Thread(target=run_keepalive,        daemon=True).start()
+threading.Thread(target=listen_command,       daemon=True).start()
+threading.Thread(target=auto_cookie_refresher,daemon=True).start()
+threading.Thread(target=run_auto_backup,      daemon=True).start()
+threading.Thread(target=run_expiry_notifier,  daemon=True).start()
+run_bot()
