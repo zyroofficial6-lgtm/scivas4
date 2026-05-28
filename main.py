@@ -1646,7 +1646,7 @@ def _do_addnum_range(acc, session, csrf, target_text, progress_cb=None):
         }
         r = session.get(test_url, params=p, headers=hdrs, timeout=20)
         if r.status_code != 200:
-            raise Exception(f"HTTP {r.status_code}")
+            raise Exception(f"HTTP {r.status_code}: {r.text[:300]}")
         return r.json()
 
     try:
@@ -1722,7 +1722,7 @@ def _do_addnum_range(acc, session, csrf, target_text, progress_cb=None):
                 ok  = any(k in raw for k in ("berhasil", "success", "added", "good job"))
                 if any(k in raw for k in ("too many", "maximum", "limit", "penuh")):
                     skipped  = True
-                    skip_msg = f"HTTP {resp.status_code}: limit tercapai"
+                    skip_msg = f"HTTP {resp.status_code}: {resp.text[:300]}"
                     break
             if ok:
                 success_count += 1
@@ -2093,9 +2093,14 @@ def handle_myrange_email_cb(chat_id, user_id, email, cb_id, msg_id):
         }
         session = acc_target["session"]
         resp = session.get(f"{my_url}?{qs}", headers=hdrs, timeout=20)
+        if "/login" in str(resp.url):
+            raise Exception("Session expired — redirect ke login. Perbarui cookie.")
         if resp.status_code != 200:
-            raise Exception(f"HTTP {resp.status_code}")
-        data = resp.json()
+            raise Exception(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        try:
+            data = resp.json()
+        except Exception:
+            raise Exception(f"Gagal parse respon server.\nRespon: {resp.text[:300]}")
         rows = data.get("data", [])
         total = data.get("recordsTotal", 0)
 
@@ -2763,7 +2768,7 @@ def return_all_base(acc):
         headers = {"X-Requested-With": "XMLHttpRequest", "Referer": f"{BASE}/portal/numbers", "Origin": BASE}
         r = session.post(url, headers=headers, data={"_token": acc.get("csrf_token", "")})
         if r.status_code == 200: return True, r.text
-        else: return False, f"HTTP {r.status_code}"
+        else: return False, f"HTTP {r.status_code}: {r.text[:300]}"
     except Exception as e:
         return False, str(e)
         
