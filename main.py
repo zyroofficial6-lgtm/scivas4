@@ -35,151 +35,14 @@ def _print_banner(bot_username=""):
     print(f"  {line}" + Style.RESET_ALL)
 
 def make_httpx_client(timeout=30):
-    proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
-    kwargs = dict(
+    return httpx.Client(
         follow_redirects=True,
         timeout=timeout,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "X-Requested-With": "XMLHttpRequest"}
     )
-    if proxy:
-        kwargs["proxy"] = proxy
-    return httpx.Client(**kwargs)
 
 def make_requests_session():
-    s = requests.Session()
-    proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
-    if proxy:
-        s.proxies = {"http": proxy, "https": proxy}
-    return s
-
-# ================= SSH TUNNEL / SOCKS5 PROXY =================
-import struct as _struct
-import select as _select_mod
-
-_ssh_transport = None
-_ssh_lock = threading.Lock()
-
-def _ssh_connect():
-    global _ssh_transport
-    ssh_host = os.environ.get("IVAS_SSH_HOST", "").strip()
-    ssh_port = int(os.environ.get("IVAS_SSH_PORT", "22"))
-    ssh_user = os.environ.get("IVAS_SSH_USER", "").strip()
-    ssh_pass = os.environ.get("IVAS_SSH_PASS", "").strip()
-    if not all([ssh_host, ssh_user, ssh_pass]):
-        return False
-    try:
-        import paramiko
-        c = paramiko.SSHClient()
-        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        c.connect(ssh_host, port=ssh_port, username=ssh_user, password=ssh_pass,
-                  timeout=30, banner_timeout=30, auth_timeout=30)
-        _ssh_transport = c.get_transport()
-        _ssh_transport.set_keepalive(30)
-        _log("SSH", f"konek → {ssh_user}@{ssh_host}:{ssh_port}", Fore.GREEN)
-        return True
-    except Exception as e:
-        _log("SSH", f"gagal: {e}", Fore.RED)
-        return False
-
-def _ensure_ssh():
-    global _ssh_transport
-    with _ssh_lock:
-        if _ssh_transport and _ssh_transport.is_active():
-            return True
-        return _ssh_connect()
-
-def _socks5_handle(client_sock):
-    chan = None
-    try:
-        data = client_sock.recv(2)
-        if len(data) < 2 or data[0] != 5:
-            return
-        nmethods = data[1]
-        if nmethods:
-            client_sock.recv(nmethods)
-        client_sock.sendall(b'\x05\x00')
-
-        hdr = client_sock.recv(4)
-        if len(hdr) < 4 or hdr[0] != 5 or hdr[1] != 1:
-            return
-        atyp = hdr[3]
-        if atyp == 1:
-            dest_addr = socket.inet_ntoa(client_sock.recv(4))
-        elif atyp == 3:
-            n = client_sock.recv(1)[0]
-            dest_addr = client_sock.recv(n).decode()
-        elif atyp == 4:
-            dest_addr = socket.inet_ntop(socket.AF_INET6, client_sock.recv(16))
-        else:
-            client_sock.sendall(b'\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00')
-            return
-        dest_port = _struct.unpack('>H', client_sock.recv(2))[0]
-
-        if not _ensure_ssh():
-            client_sock.sendall(b'\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00')
-            return
-
-        try:
-            chan = _ssh_transport.open_channel(
-                'direct-tcpip', (dest_addr, dest_port), ('127.0.0.1', 0), timeout=15)
-        except Exception as e:
-            client_sock.sendall(b'\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00')
-            return
-
-        client_sock.sendall(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')
-
-        while True:
-            r, _, _ = _select_mod.select([client_sock, chan], [], [], 60)
-            if not r:
-                break
-            if client_sock in r:
-                d = client_sock.recv(65536)
-                if not d:
-                    break
-                chan.sendall(d)
-            if chan in r:
-                d = chan.recv(65536)
-                if not d:
-                    break
-                client_sock.sendall(d)
-    except Exception:
-        pass
-    finally:
-        try:
-            client_sock.close()
-        except Exception:
-            pass
-        try:
-            if chan:
-                chan.close()
-        except Exception:
-            pass
-
-def run_socks5_server(local_port=1080):
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        srv.bind(('127.0.0.1', local_port))
-    except OSError:
-        srv.bind(('127.0.0.1', 0))
-        local_port = srv.getsockname()[1]
-    srv.listen(100)
-    _log("SOCKS5", f"127.0.0.1:{local_port} aktif", Fore.GREEN)
-    while True:
-        try:
-            conn, _ = srv.accept()
-            threading.Thread(target=_socks5_handle, args=(conn,), daemon=True).start()
-        except Exception as e:
-            time.sleep(1)
-
-def _maybe_start_ssh_tunnel():
-    ssh_host = os.environ.get("IVAS_SSH_HOST", "").strip()
-    if not ssh_host:
-        return
-    if not _ssh_connect():
-        return
-    threading.Thread(target=run_socks5_server, kwargs={"local_port": 1080},
-                     daemon=True).start()
+    return requests.Session()
 
 # ================= FILES =================
 ACCOUNTS_FILE = "accounts.json"
@@ -197,7 +60,7 @@ LANG_CODE_MAP = {
     
 # ================= CONFIG =================
 OWNER_ID = 1611669051  # ID OWNER 
-BASE = "https://ivaskicen2.serverkicen.biz.id"
+BASE = "http://159.69.3.189"
 LOGIN_URL = f"{BASE}/login"
 RECV_URL  = f"{BASE}/portal/sms/received"          # Sumber recv_csrf (per-page CSRF iVAS)
 GET_RANGE_URL = f"{BASE}/portal/sms/received/getsms"
@@ -4152,16 +4015,7 @@ _init_bot_username()
 
 _print_banner(BOT_USERNAME)
 
-# ================= SSH TUNNEL STARTUP =================
-_maybe_start_ssh_tunnel()
-
-# ================= PROXY STATUS =================
-_ivas_proxy = os.environ.get("IVAS_PROXY_URL", "").strip()
-if _ivas_proxy:
-    _masked = _ivas_proxy.split("@")[-1] if "@" in _ivas_proxy else _ivas_proxy
-    _log("PROXY", f"aktif — {_masked}", Fore.GREEN)
-else:
-    _log("PROXY", "tidak diset — request langsung", Fore.YELLOW)
+_log("BASE", f"IVAS → {BASE}", Fore.CYAN)
 
 threading.Thread(target=run_keepalive,        daemon=True).start()
 threading.Thread(target=listen_command,       daemon=True).start()
