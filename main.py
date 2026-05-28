@@ -598,9 +598,11 @@ def ambilnomor_to_txt():
 
     return filename
 
-def export_numbers_ivas(chat_id, email, status_msg_id=None):
+def export_numbers_ivas(chat_id, acc, status_msg_id=None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
+
+    email = acc["email"] if isinstance(acc, dict) else acc
 
     def _status(text):
         if status_msg_id:
@@ -608,12 +610,25 @@ def export_numbers_ivas(chat_id, email, status_msg_id=None):
         else:
             send_msg(chat_id, text)
 
-    all_cookies = load_cookies()
-    prem_cookies = load_premium_cookies()
+    # Ambil cookies dari acc atau fallback ke file
+    if isinstance(acc, dict):
+        cookies = acc.get("cookies") or {}
+        if not cookies:
+            all_cookies = load_cookies()
+            prem_cookies = load_premium_cookies()
+            cookies = all_cookies.get(email) or prem_cookies.get(email) or {}
+    else:
+        all_cookies = load_cookies()
+        prem_cookies = load_premium_cookies()
+        cookies = all_cookies.get(email) or prem_cookies.get(email) or {}
 
-    cookies = all_cookies.get(email) or prem_cookies.get(email)
     if not cookies:
-        _status(f"📁 <b>AMBIL FILE</b>\n\n📧 Email: <code>{email}</code>\n❌ Cookie tidak ditemukan. Set cookie dulu dengan /setcookie atau /addcookie.")
+        _status(
+            f"📁 <b>AMBIL FILE</b>\n\n"
+            f"<blockquote>"
+            f"📧 Email: <code>{email}</code>\n"
+            f"❌ Cookie tidak ditemukan. Set cookie dulu."
+            f"</blockquote>")
         return
 
     session = make_requests_session()
@@ -644,19 +659,45 @@ def export_numbers_ivas(chat_id, email, status_msg_id=None):
         r_check = session.get(f"{BASE}/portal/numbers", params={**dt_params_base, "draw": 1, "start": 0, "length": 1},
                               headers=headers, timeout=30)
 
-        if "/login" in r_check.url or r_check.status_code != 200:
-            _status(f"📁 <b>AMBIL FILE</b>\n\n📧 Email: <code>{email}</code>\n❌ Cookie expired. Perbarui cookie dengan /addcookie.")
+        if "/login" in r_check.url:
+            _status(
+                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"❌ Gagal login/verifikasi session. Perbarui cookie."
+                f"</blockquote>")
+            return
+
+        if r_check.status_code != 200:
+            _status(
+                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"❌ Server mengembalikan error: HTTP {r_check.status_code}\n"
+                f"📄 Respon: <code>{r_check.text[:200]}</code>"
+                f"</blockquote>")
             return
 
         try:
             meta = r_check.json()
         except Exception:
-            _status(f"📁 <b>AMBIL FILE</b>\n\n📧 Email: <code>{email}</code>\n❌ Gagal parse response. Cookie mungkin expired.")
+            _status(
+                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"❌ Gagal parse respon server. Cookie mungkin expired.\n"
+                f"📄 Respon: <code>{r_check.text[:200]}</code>"
+                f"</blockquote>")
             return
 
         total = meta.get("recordsTotal", 0)
         if total == 0:
-            _status(f"📁 <b>AMBIL FILE</b>\n\n📧 Email: <code>{email}</code>\n⚠️ Tidak ada nomor aktif untuk di-export.")
+            _status(
+                f"📁 <b>AMBIL FILE</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"⚠️ Tidak ada nomor aktif untuk di-export."
+                f"</blockquote>")
             return
 
         # Ambil semua data
@@ -664,9 +705,35 @@ def export_numbers_ivas(chat_id, email, status_msg_id=None):
                             params={**dt_params_base, "draw": 2, "start": 0, "length": total},
                             headers=headers, timeout=120)
 
-        data = r_all.json().get("data", [])
+        if r_all.status_code != 200:
+            _status(
+                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"❌ Server error saat ambil data: HTTP {r_all.status_code}\n"
+                f"📄 Respon: <code>{r_all.text[:200]}</code>"
+                f"</blockquote>")
+            return
+
+        try:
+            data = r_all.json().get("data", [])
+        except Exception:
+            _status(
+                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"❌ Gagal parse data dari server.\n"
+                f"📄 Respon: <code>{r_all.text[:200]}</code>"
+                f"</blockquote>")
+            return
+
         if not data:
-            _status(f"📁 <b>AMBIL FILE</b>\n\n📧 Email: <code>{email}</code>\n⚠️ Data kosong, coba lagi.")
+            _status(
+                f"📁 <b>AMBIL FILE</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"⚠️ Data kosong, coba lagi."
+                f"</blockquote>")
             return
 
         # Build Excel
@@ -737,7 +804,12 @@ def export_numbers_ivas(chat_id, email, status_msg_id=None):
         os.remove(filepath)
 
     except Exception as e:
-        _status(f"📁 <b>AMBIL FILE</b>\n\n📧 Email: <code>{email}</code>\n❌ Error: <code>{e}</code>")
+        _status(
+            f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+            f"<blockquote>"
+            f"📧 Email: <code>{email}</code>\n"
+            f"❌ Error: <code>{str(e)[:200]}</code>"
+            f"</blockquote>")
         
 def del_account(text):
     try:
@@ -2094,13 +2166,40 @@ def handle_ambilfile_email_cb(chat_id, user_id, email, cb_id, msg_id):
         delete_and_send(chat_id, msg_id,
             "📁 <b>AMBIL FILE</b>\n\n❌ Email tidak ditemukan.")
         return
+
     proc_id = delete_and_send(chat_id, msg_id,
         f"📁 <b>AMBIL FILE</b>\n\n"
         f"<blockquote>"
         f"📧 Email: <code>{email}</code>\n\n"
         f"⏳ Sedang mengambil &amp; menyusun file export..."
         f"</blockquote>")
-    export_numbers_ivas(chat_id, email, status_msg_id=proc_id)
+
+    acc_target = next((a for a in accounts if a["email"] == email), None)
+    if not acc_target:
+        prem_cookies = load_premium_cookies()
+        if email not in prem_cookies:
+            delete_and_send(chat_id, proc_id,
+                f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+                f"<blockquote>"
+                f"📧 Email: <code>{email}</code>\n"
+                f"❌ Akun/cookie tidak ditemukan. Set cookie dulu."
+                f"</blockquote>")
+            return
+        session = make_httpx_client()
+        session.cookies.update(prem_cookies[email])
+        acc_target = {"email": email, "session": session, "last_login": time.time(),
+                      "password": "", "csrf_token": "", "cookies": prem_cookies[email]}
+
+    if not ensure_login(acc_target):
+        delete_and_send(chat_id, proc_id,
+            f"📁 <b>AMBIL FILE GAGAL</b>\n\n"
+            f"<blockquote>"
+            f"📧 Email: <code>{email}</code>\n"
+            f"❌ Gagal login/verifikasi session. Perbarui cookie."
+            f"</blockquote>")
+        return
+
+    export_numbers_ivas(chat_id, acc_target, status_msg_id=proc_id)
 
 def delete_msg(chat_id, message_id):
     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage", data={"chat_id": chat_id, "message_id": message_id}, timeout=10)
