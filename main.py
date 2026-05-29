@@ -974,6 +974,41 @@ def del_token_tier(text, chat_id):
     except:
         send_msg(chat_id, "❌ Format:\n/deltoken user_id")
 
+def cmd_resettoken(text, chat_id):
+    """Owner: /resettoken user_id — reset token user ke limit tier sekarang"""
+    try:
+        parts = text.split()
+        if len(parts) < 2:
+            return send_msg(chat_id,
+                "❌ Format:\n<code>/resettoken user_id</code>\n\n"
+                "Contoh: <code>/resettoken 123456789</code>")
+        uid = parts[1].strip()
+        users_d = load_users()
+        tier = premium_users.get(uid, {}).get("tier", "free")
+        new_limit = TOKEN_TIERS.get(tier, TOKEN_TIERS["free"])["tokens_day"]
+        if uid not in users_d:
+            users_d[uid] = {}
+        users_d[uid]["tokens"] = new_limit
+        users_d[uid]["last_token_reset"] = get_wib_date()
+        save_users(users_d)
+        t = TOKEN_TIERS.get(tier, TOKEN_TIERS["free"])
+        tok_str = "♾️ Unlimited" if new_limit >= 99999 else str(new_limit)
+        send_msg(chat_id,
+            f"✅ <b>Token direset!</b>\n\n"
+            f"<blockquote>"
+            f"👤 User ID : <code>{uid}</code>\n"
+            f"🏷️ Tier    : {t['emoji']} {t['label']}\n"
+            f"🎫 Token   : {tok_str}/hari"
+            f"</blockquote>")
+        try:
+            send_msg(int(uid),
+                f"🔄 <b>Token kamu direset oleh owner!</b>\n\n"
+                f"<blockquote>🏷️ Tier  : {t['emoji']} {t['label']}\n"
+                f"🎫 Token : {tok_str}/hari</blockquote>")
+        except: pass
+    except Exception as e:
+        send_msg(chat_id, f"❌ Error: {e}")
+
 def is_owner(user_id): return user_id == OWNER_ID
 
 def list_token_tier(chat_id):
@@ -1456,6 +1491,7 @@ def handle_start(user_id, chat_id):
             "<blockquote>"
             "/addtoken — aktivasi paket user\n"
             "/deltoken — hapus paket user\n"
+            "/resettoken — reset token user manual\n"
             "/listtoken — list paket aktif\n"
             "/setcookie\n"
             "/addakun\n"
@@ -3213,6 +3249,9 @@ def listen_command():
                     elif text.startswith("/deltoken"): 
                         if owner: del_token_tier(text, chat_id) 
                         else: send_msg(chat_id, "❌ Khusus OWNER")
+                    elif text.startswith("/resettoken"):
+                        if owner: cmd_resettoken(text, chat_id)
+                        else: send_msg(chat_id, "❌ Khusus OWNER")
                     elif text.startswith("/listtoken"): 
                         if owner: list_token_tier(chat_id) 
                         else: send_msg(chat_id, "❌ Khusus OWNER")
@@ -3711,6 +3750,63 @@ def _send_expiry_notif(uid, tier, sisa_detik, level):
         pass
 
 
+def run_token_reset():
+    """Background thread: reset token semua user tepat jam 00:00 WIB setiap hari."""
+    _log("TOKEN-RST", "background aktif — reset tiap 00:00 WIB", Fore.CYAN)
+    time.sleep(30)
+
+    while True:
+        try:
+            tz_wib = timezone(timedelta(hours=7))
+            now_wib = datetime.now(tz_wib)
+            next_midnight = (now_wib + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0)
+            wait_sec = (next_midnight - now_wib).total_seconds()
+
+            jam   = int(wait_sec // 3600)
+            menit = int((wait_sec % 3600) // 60)
+            _log("TOKEN-RST", f"reset berikutnya dalam {jam}j {menit}m ({next_midnight.strftime('%d %b %Y 00:00 WIB')})", Fore.CYAN)
+
+            time.sleep(wait_sec)
+
+            # ── Jalankan reset semua user ──────────────────────────────────
+            _log("TOKEN-RST", "00:00 WIB — reset token semua user...", Fore.CYAN)
+            today = get_wib_date()
+            users_d   = load_users()
+            prem_d    = load_premium()
+            now_ts    = time.time()
+            reset_count = 0
+            for uid_str, udata in users_d.items():
+                try:
+                    uid_int   = int(uid_str)
+                    if uid_int == OWNER_ID:
+                        continue
+                    prem      = prem_d.get(uid_str, {})
+                    expired   = prem.get("expired", 0)
+                    tier      = prem.get("tier", "free") if expired > now_ts else "free"
+                    new_limit = TOKEN_TIERS.get(tier, TOKEN_TIERS["free"])["tokens_day"]
+                    udata["tokens"]           = new_limit
+                    udata["last_token_reset"] = today
+                    reset_count += 1
+                except Exception:
+                    continue
+            save_users(users_d)
+            _log("TOKEN-RST", f"selesai — {reset_count} user direset", Fore.GREEN)
+
+            # Notif ke owner
+            try:
+                send_msg(OWNER_ID,
+                    f"🔄 <b>AUTO RESET TOKEN — 00:00 WIB</b>\n\n"
+                    f"<blockquote>✅ {reset_count} user token direset ke limit harian masing-masing.</blockquote>")
+            except Exception:
+                pass
+
+            time.sleep(65)  # jeda agar tidak trigger 2x di menit yang sama
+
+        except Exception as e:
+            _log("TOKEN-RST", f"loop crash: {e}", Fore.RED)
+            time.sleep(3600)
+
 def run_expiry_notifier():
     """
     Background thread: cek expired paket premium setiap 30 menit.
@@ -4042,4 +4138,5 @@ threading.Thread(target=listen_command,       daemon=True).start()
 threading.Thread(target=auto_cookie_refresher,daemon=True).start()
 threading.Thread(target=run_auto_backup,      daemon=True).start()
 threading.Thread(target=run_expiry_notifier,  daemon=True).start()
+threading.Thread(target=run_token_reset,      daemon=True).start()
 run_bot()
