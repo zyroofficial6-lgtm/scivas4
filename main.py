@@ -34,15 +34,27 @@ def _print_banner(bot_username=""):
     print(f"   IVAS BOT  {name}")
     print(f"  {line}" + Style.RESET_ALL)
 
+_IVAS_ORIGIN  = "https://ivaskicen2.serverkicen.biz.id"
+_IVAS_HOST    = "ivaskicen2.serverkicen.biz.id"
+_COMMON_HDR   = {
+    "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin":          _IVAS_ORIGIN,
+    "Referer":         f"{_IVAS_ORIGIN}/",
+    "X-Forwarded-Host": _IVAS_HOST,
+}
+
 def make_httpx_client(timeout=30):
     return httpx.Client(
         follow_redirects=True,
         timeout=timeout,
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "X-Requested-With": "XMLHttpRequest"}
+        headers=_COMMON_HDR,
     )
 
 def make_requests_session():
-    return requests.Session()
+    s = requests.Session()
+    s.headers.update(_COMMON_HDR)
+    return s
 
 # ================= FILES =================
 ACCOUNTS_FILE = "accounts.json"
