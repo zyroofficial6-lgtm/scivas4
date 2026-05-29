@@ -1625,10 +1625,14 @@ def add_email(text, chat_id, user_id, msg_id):
             acc["last_login"] = time.time()
             send_msg(chat_id, f"✅ <b>Akun aktif &amp; login:</b>\n<code>{email}</code>")
         else:
-            send_msg(chat_id,
-                f"⚠️ <b>Akun ditambahkan, tapi login gagal:</b>\n<code>{email}</code>\n\n"
-                f"<blockquote>Coba /addcookie untuk pasang cookie manual.</blockquote>"
+            # Login gagal — langsung trigger cookie flow tanpa perlu /addcookie lagi
+            guide_msg_id = send_msg(chat_id,
+                f"⚠️ <b>Login otomatis gagal</b> untuk <code>{email}</code>\n\n"
+                f"<blockquote>Password mungkin salah atau akun butuh verifikasi.\n"
+                f"Pasang cookie manual di bawah agar akun langsung aktif 👇</blockquote>\n\n"
+                + _cookie_guide_text("ADD COOKIE", email)
             )
+            pending_addcookie[user_id] = {"email": email, "msg_id": guide_msg_id}
     except Exception as e:
         send_msg(chat_id, f"❌ Error tambah akun: {e}")
 
@@ -2571,21 +2575,47 @@ def verify_cookie_dict(cookie_dict):
     except:
         return False
 
+def _cookie_guide_text(tag, email=None):
+    """Teks arahan cookie yang konsisten — dipakai di beberapa tempat."""
+    email_line = f"📧 Email: <code>{email}</code>\n\n" if email else ""
+    return (
+        f"🍪 <b>{tag}</b>\n\n"
+        f"{email_line}"
+        f"<blockquote>"
+        f"📋 <b>Cara Export Cookie dari Browser:</b>\n\n"
+        f"1️⃣ Login ke <b>IVAS</b> via browser\n"
+        f"2️⃣ Buka <b>DevTools</b> (F12 / klik kanan → Inspect)\n"
+        f"3️⃣ Tab <b>Application</b> → <b>Cookies</b> → pilih domain IVAS\n"
+        f"4️⃣ Copy semua → paste sebagai JSON\n\n"
+        f"📌 <b>Format yang diterima:</b>\n"
+        f"• Array: <code>[{{\"name\":\"key\",\"value\":\"val\"}}]</code>\n"
+        f"• Dict: <code>{{\"laravel_session\":\"...\",\"XSRF-TOKEN\":\"...\"}}</code>\n\n"
+        f"💡 Bisa pakai ekstensi <b>EditThisCookie</b> / <b>Cookie Editor</b> untuk export otomatis"
+        f"</blockquote>\n\n"
+        f"📤 <b>Kirim JSON cookie kamu sekarang:</b>"
+    )
+
 def cmd_addcookie(chat_id, user_id):
     users = load_users()
     emails = users.get(str(user_id), {}).get("emails", [])
     if not emails:
         send_msg(chat_id, "❌ Belum ada email. Tambah dulu dengan /addemail")
         return
+
+    # Kalau hanya 1 email — langsung ke step JSON, skip pemilihan email
+    if len(emails) == 1:
+        email = emails[0]
+        msg_id = send_msg(chat_id, _cookie_guide_text("ADD COOKIE", email))
+        pending_addcookie[user_id] = {"email": email, "msg_id": msg_id}
+        return
+
+    # Banyak email — tampilkan pilihan dulu
     buttons = [{"text": f"📧 {em}", "callback_data": f"addcookie:{em}"} for em in emails]
     buttons.append({"text": "❌ Batalkan", "callback_data": "cancel:ac"})
     send_inline_keyboard(chat_id,
-        "🍪 <b>ADD COOKIE — TOKEN</b>\n\n"
-        "<blockquote>📋 Cara Penggunaan:\n"
-        "1. Pilih email IVAS kamu di bawah\n"
-        "2. Kirim full JSON cookie dari browser\n"
-        "3. Bot akan verifikasi session otomatis\n\n"
-        "💡 Export cookie: DevTools → Application → Cookies</blockquote>\n\n"
+        "🍪 <b>ADD COOKIE</b>\n\n"
+        "<blockquote>Kamu punya beberapa akun.\n"
+        "Pilih email yang ingin diperbarui cookie-nya:</blockquote>\n\n"
         "👇 Pilih email:",
         buttons
     )
@@ -2597,15 +2627,8 @@ def handle_addcookie_callback(chat_id, user_id, email, callback_query_id, msg_id
     if email not in emails:
         answer_callback_query(callback_query_id, "❌ Email tidak ditemukan")
         return
-    new_msg_id = delete_and_send_with_cancel(chat_id, msg_id,
-        f"🍪 <b>ADD COOKIE — TOKEN</b>\n\n"
-        f"📧 Email: <code>{email}</code>\n\n"
-        f"<blockquote>📤 Sekarang kirim full JSON cookie kamu.\n\n"
-        f"Format array (export browser):\n"
-        f"<code>[{{\"name\":\"key\",\"value\":\"val\"}}]</code>\n\n"
-        f"Atau format dict:\n"
-        f"<code>{{\"laravel_session\":\"...\",\"XSRF-TOKEN\":\"...\"}}</code></blockquote>",
-        "ac"
+    new_msg_id = delete_and_send_with_cancel(
+        chat_id, msg_id, _cookie_guide_text("ADD COOKIE", email), "ac"
     )
     pending_addcookie[user_id] = {"email": email, "msg_id": new_msg_id}
 
@@ -2619,20 +2642,25 @@ def process_addcookie_input(chat_id, user_id, text):
 
     cookie_dict = parse_cookie_input(text)
     if not cookie_dict:
-        new_id = delete_and_send_with_cancel(chat_id, msg_id,
-            f"🍪 <b>ADD COOKIE — TOKEN</b>\n\n"
+        err_txt = (
+            f"🍪 <b>ADD COOKIE</b>\n\n"
             f"📧 Email: <code>{email}</code>\n\n"
-            f"❌ <b>Format JSON tidak valid!</b>\n"
-            f"<blockquote>Kirim ulang cookie dalam format yang benar.</blockquote>",
-            "ac"
+            f"❌ <b>Format JSON tidak valid!</b>\n\n"
+            f"<blockquote>Pastikan kamu kirim JSON yang valid.\n"
+            f"Contoh format array:\n"
+            f"<code>[{{\"name\":\"laravel_session\",\"value\":\"xxx\"}}]</code>\n\n"
+            f"Atau format dict:\n"
+            f"<code>{{\"laravel_session\":\"xxx\",\"XSRF-TOKEN\":\"yyy\"}}</code>\n\n"
+            f"📤 Kirim ulang JSON cookie kamu:</blockquote>"
         )
+        new_id = delete_and_send_with_cancel(chat_id, msg_id, err_txt, "ac")
         pending_addcookie[user_id] = {"email": email, "msg_id": new_id}
         return True
 
     proc_id = delete_and_send(chat_id, msg_id,
-        f"🍪 <b>ADD COOKIE — TOKEN</b>\n\n"
+        f"🍪 <b>ADD COOKIE</b>\n\n"
         f"📧 Email: <code>{email}</code>\n\n"
-        f"⏳ Menyimpan &amp; memverifikasi cookie..."
+        f"⏳ Memverifikasi cookie ke server IVAS..."
     )
 
     try:
