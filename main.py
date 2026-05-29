@@ -887,6 +887,14 @@ def add_token_tier(text, chat_id):
         expired = time.time() + (hari * 86400)
         premium_users[str(uid)] = {"tier": tier, "expired": expired}
         save_premium(premium_users)
+        # Reset token user ke limit tier baru — fix bug token tetap 0 saat ganti role
+        users_d = load_users()
+        new_limit = TOKEN_TIERS[tier]["tokens_day"]
+        if str(uid) not in users_d:
+            users_d[str(uid)] = {}
+        users_d[str(uid)]["tokens"] = new_limit
+        users_d[str(uid)]["last_token_reset"] = get_wib_date()
+        save_users(users_d)
         t = TOKEN_TIERS[tier]
         tok_str = "♾️ Unlimited" if t["tokens_day"] >= 99999 else f"{t['tokens_day']}/hari"
         send_msg(chat_id,
