@@ -60,7 +60,7 @@ LANG_CODE_MAP = {
     
 # ================= CONFIG =================
 OWNER_ID = 1611669051  # ID OWNER 
-BASE = "https://ivaskicen2.serverkicen.biz.id"
+BASE = "https://red-heart-2fa9.apiivas.workers.dev"
 LOGIN_URL = f"{BASE}/login"
 RECV_URL  = f"{BASE}/portal/sms/received"          # Sumber recv_csrf (per-page CSRF iVAS)
 GET_RANGE_URL = f"{BASE}/portal/sms/received/getsms"
